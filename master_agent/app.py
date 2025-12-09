@@ -1,99 +1,107 @@
-from fastapi import FastAPI
+# master_agent/app.py
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
-import openai
+from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
+# Load .env variables first
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Initialize OpenAI client with API key
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
 class UserMessage(BaseModel):
     message: str
-    customer_data: dict = {}  # Optional: customer info passed along
+    customer_data: dict | None = None
 
 @app.get("/")
 def home():
     return {"message": "Master Agent API is running!"}
 
 @app.post("/chat")
-def chat_with_master_agent(user_input: UserMessage):
-    """
-    Master Agent logic:
-    1. Decide which worker agent to call
-    2. Call worker agent
-    3. Return combined response
-    """
+def chat(user_input: UserMessage):
+    result = {"master_agent_reply": None}
 
-    # -----------------------------
-    # STEP 1: Master decides next agent
-    # -----------------------------
-    master_prompt = f"""
-    You are the MASTER AGENT for a loan sales system.
-    Decide the next agent based on customer info or message:
-    - If customer wants loan info / new application → Sales Agent
-    - If customer data exists → Verification Agent
-    - If verification done → Underwriting Agent
-    - If loan approved → Sanction Agent
-    Respond in JSON like:
-    {{
-        "assistant_reply": "<message to user>",
-        "next_agent": "sales" / "verification" / "underwriting" / "sanction" / "none"
-    }}
-    Customer message: "{user_input.message}"
-    """
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"user","content":master_prompt}]
-    )
-
-    # Convert GPT output to dict safely
     try:
-        decision = eval(response['choices'][0]['message']['content'])
-    except:
-        decision = {"assistant_reply": "I am not sure what to do.", "next_agent": "none"}
+        master_prompt = f"""
+You are the MASTER AGENT for a loan sales system.
+Based on the customer's message and data, reply with a JSON object:
+{{
+  "assistant_reply": "<message to user>",
+  "next_agent": "sales" / "verification" / "underwriting" / "sanction" / "none"
+}}
+Customer message: "{user_input.message}"
+Customer data: {user_input.customer_data}
+"""
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": master_prompt}]
+        )
 
-    result = {"master_agent_reply": decision["assistant_reply"]}
+        content = resp.choices[0].message.content
 
-    # -----------------------------
-    # STEP 2: Route to Worker Agent
-    # -----------------------------
-    # Sales Agent
-    if decision["next_agent"] == "sales":
-        payload = {"customer_message": user_input.message}
-        sales_resp = requests.post("http://127.0.0.1:8001/sales", json=payload)
-        result["sales_agent_reply"] = sales_resp.json()
+        try:
+            decision = eval(content)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Master Agent JSON parse error: {e}. Content: {content}"
+            )
 
-    # Verification Agent
-    elif decision["next_agent"] == "verification":
-        payload = {"customer_data": user_input.customer_data}
-        verify_resp = requests.post("http://127.0.0.1:8002/verify", json=payload)
-        result["verification_agent_reply"] = verify_resp.json()
+        result["master_agent_reply"] = decision.get("assistant_reply", "")
+        next_agent = decision.get("next_agent", "none")
 
-    # Underwriting Agent
-    elif decision["next_agent"] == "underwriting":
-        payload = {"customer_data": user_input.customer_data}
-        underwrite_resp = requests.post("http://127.0.0.1:8003/assess", json=payload)
-        result["underwriting_agent_reply"] = underwrite_resp.json()
+        if next_agent == "sales":
+            sales_resp = requests.post(
+                "http://127.0.0.1:8001/sales",
+                json={"customer_message": user_input.message}
+            )
+            sales_resp.raise_for_status()
+            result["sales_agent_reply"] = sales_resp.json()
 
-    # Sanction Letter Agent
-    elif decision["next_agent"] == "sanction":
-        payload = {
-            "customer_data": user_input.customer_data,
-            "underwriting_result": user_input.customer_data.get("underwriting_result", {})
-        }
-        sanction_resp = requests.post("http://127.0.0.1:8004/generate", json=payload)
-        result["sanction_agent_reply"] = sanction_resp.json()
+        elif next_agent == "verification":
+            if not user_input.customer_data:
+                raise HTTPException(400, "No customer_data for verification")
+            verify_resp = requests.post(
+                "http://127.0.0.1:8002/verify",
+                json={"customer_data": user_input.customer_data}
+            )
+            verify_resp.raise_for_status()
+            result["verification_agent_reply"] = verify_resp.json()
 
-    # No next agent
-    else:
-        pass
+        elif next_agent == "underwriting":
+            if not user_input.customer_data:
+                raise HTTPException(400, "No customer_data for underwriting")
+            under_resp = requests.post(
+                "http://127.0.0.1:8003/assess",
+                json={"customer_data": user_input.customer_data}
+            )
+            under_resp.raise_for_status()
+            result["underwriting_agent_reply"] = under_resp.json()
 
-    return result
+        elif next_agent == "sanction":
+            if not user_input.customer_data:
+                raise HTTPException(400, "No customer_data for sanction")
+            sanction_resp = requests.post(
+                "http://127.0.0.1:8004/generate",
+                json={
+                    "customer_data": user_input.customer_data,
+                    "underwriting_result": user_input.customer_data.get("underwriting_result", {})
+                }
+            )
+            sanction_resp.raise_for_status()
+            result["sanction_agent_reply"] = sanction_resp.json()
 
-@app.get("/chat")
-def chat_get():
-    return {"message": "This endpoint only supports POST. Use Swagger UI to test."}
+        return result
+
+    except HTTPException as he:
+        raise he
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error in Master Agent: {exc}"
+        )
