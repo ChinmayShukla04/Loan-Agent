@@ -1,30 +1,32 @@
-# Loan-Agent: Agentic AI for NBFC Personal Loan Sales
+# Loan-Agent 
+Agentic AI for NBFC Personal Loan Sales (EY Hackathon)
 
 ## Problem Statement
-NBFCs want to increase personal loan conversion using AI-driven conversational sales.
+NBFCs want to improve their personal loan sales success rate using an AI-driven conversational approach.
 
 ## Solution Overview
-We built an Agentic AI system where:
-- A Master Agent handles customer conversation
-- Multiple Worker Agents assist with eligibility, risk, KYC, and loan offers
+Loan-Agent is an Agentic AI system where:
+- A Master Agent handles customer conversations
+- Worker Agents assist in verification, underwriting, and loan sanction
+- The system simulates a human-like loan sales process
 
 ## Architecture
-Master Agent → Worker Agents → Final Offer
+User → Master Agent → Worker Agents → Final Loan Decision
 
-## Agents
-- Master Sales Agent
-- Eligibility Agent
-- Risk Assessment Agent
-- KYC Agent
-- Loan Recommendation Agent
+## Agents Used
+- Master Agent – Conversation & orchestration
+- Sales Agent – Lead qualification
+- Verification Agent – KYC check
+- Underwriting Agent – Risk assessment
+- Sanction Agent – Loan approval
 
 ## Tech Stack
 - Python
 - FastAPI
-- OpenAI LLM
 - Agent-based architecture
+- Docker
 
-## Future Enhancements
-- Voice agent
-- WhatsApp integration
-- Human-in-the-loop
+## How to Run
+```bash
+pip install -r requirements.txt
+uvicorn master_agent.app:app --reload
