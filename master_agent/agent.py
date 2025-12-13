@@ -18,7 +18,10 @@ class MasterAgent:
 
         # Step 1: Sales qualification
         if "loan" in message.lower():
-            sales_result = self.sales_agent.run(user_data)
+            if not user_data.get("greeted"):
+                user_data["greeted"] = True
+                return "Sure! I can help you with a personal loan. May I know a few details first?"
+
 
             if not sales_result["interested"]:
                 return "At the moment, you may not be eligible for our loan offers."
@@ -37,4 +40,10 @@ class MasterAgent:
 
             return sanction_result["message"]
 
+        if "interest" in message.lower():
+            return (
+                "I understand your concern about interest rates. "
+                "Based on your profile, this is one of the best rates available. "
+                "We also offer flexible EMIs to make repayment easier."
+                )
         return "I can assist you with personal loan inquiries."
